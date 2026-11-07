@@ -1,0 +1,22 @@
+services:
+  backend:
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - /app/dist
+
+  frontend:
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
