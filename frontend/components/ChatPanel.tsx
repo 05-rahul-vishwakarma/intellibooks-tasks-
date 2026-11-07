@@ -120,7 +120,7 @@ export default function ChatPanel({
           </div>
         ) : (
           <div className="leading-tight">
-            <p className="text-sm font-semibold text-slate-900">IntelliBooks</p>
+            <p className="text-sm font-semibold text-slate-900">PaperChat</p>
             <p className="text-[11px] text-slate-400">Document Q&amp;A</p>
           </div>
         )}
@@ -209,7 +209,7 @@ export default function ChatPanel({
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-slate-400">
-              IntelliBooks can make mistakes. Check the cited source passages.
+              PaperChat can make mistakes. Check the cited source passages.
             </p>
           </form>
         </div>
@@ -231,7 +231,11 @@ export default function ChatPanel({
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Source passage</h2>
-                <p className="text-xs text-slate-400">Page {activeSource.page_number}</p>
+                <p className="text-xs text-slate-400">
+                  {activeSource.page_number > 0
+                    ? `Page ${activeSource.page_number}`
+                    : "Document excerpt"}
+                </p>
               </div>
               <button
                 type="button"

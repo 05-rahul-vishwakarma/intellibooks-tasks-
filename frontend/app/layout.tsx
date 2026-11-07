@@ -6,7 +6,7 @@ import Providers from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "IntelliBooks",
+  title: "PaperChat",
   description: "RAG document Q&A with pgvector and Clerk",
 };
 

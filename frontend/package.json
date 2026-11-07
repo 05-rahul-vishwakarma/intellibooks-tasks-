@@ -1,8 +1,8 @@
 {
-  "name": "intellibooks-frontend",
+  "name": "paperchat-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Next.js App Router frontend for IntelliBooks RAG app",
+  "description": "Next.js App Router frontend for PaperChat RAG app",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

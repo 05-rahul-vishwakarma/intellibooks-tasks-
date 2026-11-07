@@ -65,7 +65,7 @@ export default function DocumentSidebar({
               <SparklesIcon className="h-5 w-5" />
             </div>
             <div className="leading-tight">
-              <p className="text-sm font-semibold text-slate-900">IntelliBooks</p>
+              <p className="text-sm font-semibold text-slate-900">PaperChat</p>
               <p className="text-[11px] text-slate-400">Document Q&amp;A</p>
             </div>
           </div>

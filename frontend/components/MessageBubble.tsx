@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import type { ChatSource } from "@/lib/api";
+import { groupSourcesByPage } from "@/lib/sources";
 import { SparklesIcon } from "@/components/icons";
 
 interface MessageBubbleProps {
@@ -16,6 +18,8 @@ export default function MessageBubble({
   sources = [],
   onSourceClick,
 }: MessageBubbleProps) {
+  const groupedSources = useMemo(() => groupSourcesByPage(sources), [sources]);
+
   if (role === "user") {
     return (
       <div className="flex animate-fade-in-up justify-end">
@@ -33,17 +37,22 @@ export default function MessageBubble({
       </div>
 
       <div className="min-w-0 max-w-[85%]">
-        {sources.length > 0 && (
+        {groupedSources.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {sources.map((source, index) => (
+            {groupedSources.map((source) => (
               <button
-                key={`${source.page_number}-${index}`}
+                key={source.page_number}
                 type="button"
                 onClick={() => onSourceClick?.(source)}
+                title={
+                  source.count > 1
+                    ? `${source.count} passages from this page`
+                    : "View source passage"
+                }
                 className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-                Page {source.page_number}
+                {source.page_number > 0 ? `Page ${source.page_number}` : "Source"}
               </button>
             ))}
           </div>
