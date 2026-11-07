@@ -1,6 +1,8 @@
 services:
   backend:
-    command: npm run dev
+    # Apply pending migrations before starting the dev server. Without this the
+    # override would replace the Dockerfile CMD and no tables would be created.
+    command: sh -c "npx prisma migrate deploy && npm run dev"
     environment:
       NODE_ENV: development
       CHOKIDAR_USEPOLLING: "true"

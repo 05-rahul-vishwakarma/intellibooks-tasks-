@@ -16,8 +16,20 @@ const statusStyles: Record<string, string> = {
   failed: "bg-rose-50 text-rose-700 ring-rose-600/20",
 };
 
+function formatUploadDate(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export default function DocumentRow({ doc, active, onSelect, onDelete }: DocumentRowProps) {
   const badge = statusStyles[doc.status] ?? "bg-slate-100 text-slate-600 ring-slate-500/20";
+  const uploaded = formatUploadDate(doc.created_at);
 
   return (
     <li className="group relative">
@@ -48,6 +60,7 @@ export default function DocumentRow({ doc, active, onSelect, onDelete }: Documen
             </span>
             <span className="truncate text-[11px] text-slate-400">
               {doc.page_count} pg · {(doc.file_size / 1024).toFixed(0)} KB
+              {uploaded ? ` · ${uploaded}` : ""}
             </span>
           </span>
         </span>

@@ -1,9 +1,10 @@
 const MAX_RETRIES = 4;
 const RETRY_BASE_MS = 2000;
-const BATCH_SIZE = 50;
+const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || "50", 10);
 
 const MODEL = process.env.EMBEDDING_MODEL || "gemini-embedding-001";
-const DIMS = Number(process.env.EMBEDDING_DIMS || 768); // must equal VECTOR(n) in your DB
+// Must equal VECTOR(n) in the DB (see prisma/schema.prisma → vector(768)).
+const DIMS = Number(process.env.EMBEDDING_DIMS || 768);
 
 type TaskType = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
 
@@ -24,8 +25,6 @@ function normalize(v: number[]): number[] {
 async function embedBatch(texts: string[], taskType: TaskType): Promise<number[][]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  console.log(`Embeddings: model=${MODEL}, dims=${DIMS}`);
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:batchEmbedContents`;
 
@@ -57,8 +56,19 @@ async function embedBatch(texts: string[], taskType: TaskType): Promise<number[]
         );
       }
 
-      const data = (await res.json()) as { embeddings: { values: number[] }[] };
-      return data.embeddings.map((e) => normalize(e.values));
+      const data = (await res.json()) as { embeddings?: { values: number[] }[] };
+      if (!data.embeddings?.length) {
+        throw new Error("Gemini embedding response contained no embeddings");
+      }
+      const vectors = data.embeddings.map((e) => normalize(e.values));
+      const wrong = vectors.find((v) => v.length !== DIMS);
+      if (wrong) {
+        throw new Error(
+          `Embedding dimension mismatch: model returned ${wrong.length} dims but EMBEDDING_DIMS=${DIMS}. ` +
+            `Make the DB column and EMBEDDING_DIMS agree.`
+        );
+      }
+      return vectors;
     } catch (err) {
       lastError = err;
       const status = err instanceof HttpError ? err.status : undefined;

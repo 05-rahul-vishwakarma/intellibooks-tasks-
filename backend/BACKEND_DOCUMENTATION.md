@@ -66,7 +66,7 @@ backend/
 │   ├── lib/
 │   │   ├── db.ts          # Prisma client singleton (database connection).
 │   │   ├── groq.ts        # Groq chat service (streaming + non-streaming).
-│   │   ├── llm.ts         # NVIDIA LLM service (kept as fallback/alternative).
+│   │   ├── llm.ts         # Provider-neutral grounded system-prompt builder.
 │   │   ├── embeddings.ts  # Gemini embedding service (text → vectors).
 │   │   ├── parser.ts      # Extracts text per page from PDF/DOCX/TXT.
 │   │   ├── chunker.ts     # Splits text into overlapping chunks.
@@ -136,7 +136,7 @@ Every request to the backend must be authenticated.
 4. **Retrieve** (`src/lib/retrieval.ts`) —
    - Embeds the user's question using Gemini (same embedding model used for chunks).
    - Runs a vector similarity search (`cosine distance`) in PostgreSQL using `pgvector`, scoped to `user_id + document_id`.
-   - Returns top 5 chunks (`TOP_K=5`) with similarity score ≥ 0.30 (`MIN_SCORE`).
+   - Returns top 5 chunks (`TOP_K=5`) with similarity score ≥ 0.60 (`MIN_SCORE`).
 5. **Grounding check** — If no chunks meet the score threshold, the backend replies: *"I couldn't find this in the document."* (No LLM call — prevents hallucination.)
 6. **Send sources** — Sends the retrieved chunks (with page numbers and scores) to the frontend via SSE `sources` event.
 7. **Build prompt** (`src/lib/llm.ts`) — Creates a system prompt that instructs the AI to:
@@ -225,21 +225,20 @@ Found in `backend/.env`:
 |----------|---------|---------|
 | `CLERK_SECRET_KEY` | `sk_test_...` | Clerk backend secret for verifying tokens |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_test_...` | Clerk frontend key |
-| `CLOUDINARY_CLOUD_NAME` | `dxgapyggk` | Cloudinary cloud identifier |
+| `CLOUDINARY_CLOUD_NAME` | `your-cloud` | Cloudinary cloud identifier (optional) |
 | `CLOUDINARY_API_KEY` | `...` | Cloudinary API key |
 | `CLOUDINARY_API_SECRET` | `...` | Cloudinary API secret |
 | `GEMINI_API_KEY` | `...` | Google Gemini API key (for embeddings) |
 | `EMBEDDING_MODEL` | `gemini-embedding-001` | Gemini embedding model name |
-| `EMBEDDING_DIMS` | `768` | Vector dimension size |
+| `EMBEDDING_DIMS` | `768` | Vector dimension size (must equal `vector(N)` in the DB) |
+| `EMBEDDING_BATCH_SIZE` | `32` | Chunks per embedding request |
 | `GROQ_API_KEY` | `gsk_...` | Groq API key (for chat) |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Groq chat model |
-| `NVIDIA_API_KEY` | `nvapi_...` | NVIDIA NIM key (kept as fallback) |
-| `CHAT_MODEL` | `meta/llama-3.2-90b-vision-instruct` | NVIDIA chat model (fallback) |
-| `DATABASE_URL` | `postgresql://...` | Neon PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql://...` | PostgreSQL + pgvector connection string |
 | `PORT` | `8000` | Backend server port |
 | `FRONTEND_URL` | `http://localhost:3000` | Allowed CORS origin |
 | `MAX_FILE_SIZE_MB` | `20` | Max upload size |
-| `MIN_SCORE` | `0.30` | Minimum similarity score for RAG |
+| `MIN_SCORE` | `0.60` | Minimum cosine similarity for RAG |
 | `TOP_K` | `5` | Max chunks to retrieve per question |
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `150` | Overlap between chunks |
@@ -286,7 +285,7 @@ npm install
 npx prisma generate
 
 # 5. Set up database (creates tables if they don't exist)
-# The schema is already applied to the Neon database.
+# The schema is applied automatically by `prisma migrate deploy` (Docker CMD).
 # For local dev, you can run migrations:
 npx prisma migrate dev
 
@@ -308,6 +307,7 @@ curl http://localhost:8000/api/health
 | GET | `/api/health` | Health check | No |
 | POST | `/api/documents` | Upload a document (returns 202) | Yes |
 | GET | `/api/documents` | List user's documents | Yes |
+| GET | `/api/documents/:id` | Get one owned document | Yes |
 | DELETE | `/api/documents/:id` | Delete a document (cascades) | Yes |
 | POST | `/api/chat` | Ask a question (SSE streaming) | Yes |
 | GET | `/api/messages/:document_id` | Get chat history | Yes |
@@ -319,8 +319,9 @@ curl http://localhost:8000/api/health
 **Q: Where is the frontend?**
 A: In the `frontend/` folder at the repo root. It's a Next.js app that calls these backend APIs.
 
-**Q: Can I switch the chat model back to NVIDIA?**
-A: Yes. Edit `src/routes/chat.ts` to import `streamChat` from `../lib/llm` instead of `groqStreamChat` from `../lib/groq`. The `llm.ts` service is still intact.
+**Q: Can I switch the chat model to another provider?**
+A: Yes. The chat provider is isolated in `src/lib/groq.ts`; replace `groqStreamChat` with any
+OpenAI-compatible streaming client. The grounded prompt (`src/lib/llm.ts`) is provider-neutral.
 
 **Q: What happens if embedding fails?**
 A: The document status is set to `"failed"` and the error message is saved. The user can delete it and try again.

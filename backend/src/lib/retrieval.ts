@@ -21,8 +21,14 @@ interface ChunkRow {
   score: number;
 }
 
-const TOP_K = parseInt(process.env.TOP_K || "5");
-const MIN_SCORE = parseFloat(process.env.MIN_SCORE || "0.30");
+const TOP_K = parseInt(process.env.TOP_K || "5", 10);
+
+// Minimum cosine similarity for a chunk to count as "in the document".
+// Gemini embeddings (normalized) give unrelated passages roughly 0.4–0.6 and
+// genuinely relevant passages roughly 0.7+. 0.60 is a conservative default that
+// lets the honest "I couldn't find this in the document" path actually fire.
+// Tune with MIN_SCORE after running a few known-answer questions on a sample doc.
+const MIN_SCORE = parseFloat(process.env.MIN_SCORE || "0.60");
 
 /**
  * Embed a question and run vector search over chunks scoped to user_id + document_id.

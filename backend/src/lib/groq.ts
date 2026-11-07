@@ -1,13 +1,19 @@
 import Groq from "groq-sdk";
 
-const apiKey = process.env.GROQ_API_KEY;
-if (!apiKey) {
-  throw new Error("GROQ_API_KEY is not set");
-}
-
-const client = new Groq({ apiKey });
-
 export const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+
+let cachedClient: Groq | null = null;
+
+// Lazy init so a missing key fails per-request (with a clear error) instead of
+// crashing the whole server at import time.
+function getClient(): Groq {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is not set");
+  }
+  cachedClient ??= new Groq({ apiKey });
+  return cachedClient;
+}
 
 export interface GroqStreamOptions {
   onToken: (token: string) => void;
@@ -20,7 +26,7 @@ export interface GroqStreamOptions {
 export async function groqChat(
   messages: { role: "system" | "user" | "assistant"; content: string }[]
 ): Promise<string> {
-  const completion = await client.chat.completions.create({
+  const completion = await getClient().chat.completions.create({
     model: GROQ_MODEL,
     temperature: 0.1,
     stream: false,
@@ -41,7 +47,7 @@ export async function groqStreamChat(
   const { onToken, onError } = options;
 
   try {
-    const stream = await client.chat.completions.create({
+    const stream = await getClient().chat.completions.create({
       model: GROQ_MODEL,
       temperature: 0.1,
       stream: true,

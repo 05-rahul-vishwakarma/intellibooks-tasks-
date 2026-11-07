@@ -1,37 +1,48 @@
 import express from "express";
 import multer from "multer";
+import { z } from "zod";
 import { Prisma, Document } from "@prisma/client";
 import { prisma, pgvector } from "../lib/db";
 import { parseFile } from "../lib/parser";
 import { chunkDocument } from "../lib/chunker";
 import { embedTexts } from "../lib/embeddings";
-import { uploadBuffer } from "../lib/cloudinary";
+import { deleteStoredFile, uploadBuffer } from "../lib/cloudinary";
+import { asyncHandler, HttpError } from "../lib/http";
 
 const router = express.Router();
 
+const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || "20", 10);
+
+const ALLOWED_MIME = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+]);
+
 const upload = multer({
-  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE_MB || "20") * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE_MB * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = [
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "text/plain",
-    ];
-    if (allowed.includes(file.mimetype)) {
+    if (ALLOWED_MIME.has(file.mimetype)) {
       cb(null, true);
-    } else {
-      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+      return;
     }
+    const err = new Error("Unsupported file type. Upload a PDF, DOCX or TXT file.") as Error & {
+      status?: number;
+    };
+    err.status = 400;
+    cb(err);
   },
 });
+
+const idSchema = z.string().uuid("id must be a valid UUID");
 
 function serializeDocument(doc: Document) {
   return {
     id: doc.id,
-  original_name: doc.originalName,
-  file_size: doc.fileSize,
-  cloudinary_url: doc.cloudinaryUrl,
-  status: doc.status,
+    original_name: doc.originalName,
+    file_size: doc.fileSize,
+    cloudinary_url: doc.cloudinaryUrl,
+    status: doc.status,
     error_message: doc.errorMessage,
     page_count: doc.pageCount,
     created_at: doc.createdAt,
@@ -40,15 +51,17 @@ function serializeDocument(doc: Document) {
 }
 
 // POST /api/documents — upload, insert processing, return 202
-router.post("/", upload.single("file"), async (req, res) => {
-  const userId = (req as any).userId;
-  const file = req.file;
+router.post(
+  "/",
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const userId = req.userId!;
+    const file = req.file;
 
-  if (!file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
+    if (!file) {
+      throw new HttpError(400, "No file uploaded. Send the file in the `file` field.");
+    }
 
-  try {
     const document = await prisma.document.create({
       data: {
         userId,
@@ -58,20 +71,29 @@ router.post("/", upload.single("file"), async (req, res) => {
       },
     });
 
-    // Upload to Cloudinary
-    const secureUrl = await uploadBuffer(file.buffer, file.originalname, file.mimetype);
-    await prisma.document.update({
-      where: { id: document.id },
-      data: { cloudinaryUrl: secureUrl },
-    });
+    // Archival copy is optional: a storage outage must not fail the upload.
+    try {
+      const secureUrl = await uploadBuffer(file.buffer, file.originalname, file.mimetype);
+      if (secureUrl) {
+        await prisma.document.update({
+          where: { id: document.id },
+          data: { cloudinaryUrl: secureUrl },
+        });
+      }
+    } catch (err) {
+      console.error(`Document ${document.id} archival upload failed:`, err);
+    }
 
-    // Background processing — do not await before responding
+    // Background processing — do not await before responding.
     processDocument(document.id, userId, file.buffer, file.mimetype).catch((err) => {
       console.error(`Document ${document.id} processing failed:`, err);
       prisma.document
         .update({
           where: { id: document.id },
-          data: { status: "failed", errorMessage: err.message },
+          data: {
+            status: "failed",
+            errorMessage: err instanceof Error ? err.message : "Processing failed",
+          },
         })
         .catch((e) => console.error("Failed to update error status:", e));
     });
@@ -81,11 +103,8 @@ router.post("/", upload.single("file"), async (req, res) => {
       status: "processing",
       message: "Document uploaded and processing started",
     });
-  } catch (err) {
-    console.error("Upload error:", err);
-    return res.status(500).json({ error: "Upload failed" });
-  }
-});
+  })
+);
 
 // Background processing: parse → chunk → embed → store → mark ready/failed
 async function processDocument(
@@ -98,8 +117,8 @@ async function processDocument(
   const pages = await parseFile(buffer, mimetype);
 
   // 2. Chunk per page
-  const chunkSize = parseInt(process.env.CHUNK_SIZE || "1000");
-  const chunkOverlap = parseInt(process.env.CHUNK_OVERLAP || "150");
+  const chunkSize = parseInt(process.env.CHUNK_SIZE || "1000", 10);
+  const chunkOverlap = parseInt(process.env.CHUNK_OVERLAP || "150", 10);
   const chunks = chunkDocument(pages, chunkSize, chunkOverlap);
 
   if (chunks.length === 0) {
@@ -111,7 +130,7 @@ async function processDocument(
   }
 
   // 3. Embed in batches
-  const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || "32");
+  const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || "32", 10);
   const contents = chunks.map((c) => c.content);
 
   for (let i = 0; i < contents.length; i += batchSize) {
@@ -139,29 +158,64 @@ async function processDocument(
 }
 
 // GET /api/documents — list user's documents
-router.get("/", async (req, res) => {
-  const userId = (req as any).userId;
-  const documents = await prisma.document.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-  });
-  return res.json({ documents: documents.map(serializeDocument) });
-});
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const userId = req.userId!;
+    const documents = await prisma.document.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    return res.json({ documents: documents.map(serializeDocument) });
+  })
+);
+
+// GET /api/documents/:id — fetch one document (scoped to the owner)
+router.get(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const userId = req.userId!;
+    const parsed = idSchema.safeParse(req.params.id);
+    if (!parsed.success) {
+      throw new HttpError(400, parsed.error.issues[0]?.message || "Invalid id");
+    }
+
+    const document = await prisma.document.findFirst({
+      where: { id: parsed.data, userId },
+    });
+    if (!document) {
+      throw new HttpError(404, "Document not found");
+    }
+    return res.json(serializeDocument(document));
+  })
+);
 
 // DELETE /api/documents/:id — cascades chunks + messages
-router.delete("/:id", async (req, res) => {
-  const userId = (req as any).userId;
-  const { id } = req.params;
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const userId = req.userId!;
+    const parsed = idSchema.safeParse(req.params.id);
+    if (!parsed.success) {
+      throw new HttpError(400, parsed.error.issues[0]?.message || "Invalid id");
+    }
+    const id = parsed.data;
 
-  const result = await prisma.document.deleteMany({
-    where: { id, userId },
-  });
+    const existing = await prisma.document.findFirst({
+      where: { id, userId },
+      select: { id: true, cloudinaryUrl: true },
+    });
+    if (!existing) {
+      throw new HttpError(404, "Document not found");
+    }
 
-  if (result.count === 0) {
-    return res.status(404).json({ error: "Document not found" });
-  }
+    await prisma.document.delete({ where: { id } });
 
-  return res.json({ message: "Document deleted", id });
-});
+    // Best-effort cleanup of the archived file; never block the response on it.
+    await deleteStoredFile(existing.cloudinaryUrl);
+
+    return res.json({ message: "Document deleted", id });
+  })
+);
 
 export default router;

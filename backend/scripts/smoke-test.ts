@@ -1,36 +1,30 @@
 import "../src/env";
-import OpenAI from "openai";
-import pgvector from "pgvector";
 
-const client = new OpenAI({
-  baseURL: "https://integrate.api.nvidia.com/v1",
-  apiKey: process.env.NVIDIA_API_KEY,
-});
-
+/**
+ * Provider smoke test: verifies the Gemini embedding key/model and the Groq
+ * chat key/model are configured and reachable.
+ *
+ * Run: npm run smoke-test
+ */
 async function main() {
-  if (!process.env.NVIDIA_API_KEY) {
-    console.error("NVIDIA_API_KEY is not set");
+  const missing = ["GEMINI_API_KEY", "GROQ_API_KEY"].filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`Missing environment variables: ${missing.join(", ")}`);
     process.exit(1);
   }
 
-  // 1. Embedding smoke test
-  const emb = await client.embeddings.create({
-    model: process.env.EMBEDDING_MODEL || "nvidia/embed-qa-4",
-    input: ["smoke test chunk"],
-  });
-  const vector = emb.data[0].embedding;
-  console.log("Embedding dimensions:", vector.length);
-  if (vector.length !== 2048) {
-    console.warn(`Expected 2048 dims, got ${vector.length}`);
-  }
+  const { embedText } = await import("../src/lib/embeddings");
+  const { groqChat, GROQ_MODEL } = await import("../src/lib/groq");
 
-  // 2. Chat smoke test
-  const chat = await client.chat.completions.create({
-    model: process.env.CHAT_MODEL || "nvidia/nemotron-4-340b-instruct",
-    temperature: 0.1,
-    messages: [{ role: "user", content: "Say 'smoke test passed'" }],
-  });
-  console.log("Chat response:", chat.choices[0]?.message?.content);
+  // 1. Embeddings (Gemini)
+  const vector = await embedText("smoke test chunk");
+  console.log(`Embedding model: ${process.env.EMBEDDING_MODEL || "gemini-embedding-001"}`);
+  console.log(`Embedding dimensions: ${vector.length}`);
+
+  // 2. Chat (Groq)
+  const answer = await groqChat([{ role: "user", content: "Say 'smoke test passed'" }]);
+  console.log(`Chat model: ${GROQ_MODEL}`);
+  console.log("Chat response:", answer);
   console.log("Smoke test passed");
 }
 

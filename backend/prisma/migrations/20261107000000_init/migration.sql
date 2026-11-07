@@ -10,6 +10,7 @@ CREATE TABLE "documents" (
     "user_id" TEXT NOT NULL,
     "original_name" TEXT NOT NULL,
     "file_size" INTEGER NOT NULL,
+    "cloudinary_url" TEXT,
     "status" TEXT NOT NULL DEFAULT 'processing',
     "error_message" TEXT,
     "page_count" INTEGER NOT NULL DEFAULT 0,
@@ -27,7 +28,7 @@ CREATE TABLE "chunks" (
     "page_number" INTEGER NOT NULL,
     "content" TEXT NOT NULL,
     "chunk_index" INTEGER NOT NULL,
-    "embedding" vector(2048),
+    "embedding" vector(768),
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "chunks_pkey" PRIMARY KEY ("id")
