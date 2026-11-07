@@ -85,9 +85,10 @@ router.post(
     }
 
     // Background processing — do not await before responding.
-    processDocument(document.id, userId, file.buffer, file.mimetype).catch((err) => {
+    processDocument(document.id, userId, file.buffer, file.mimetype).catch(async (err) => {
       console.error(`Document ${document.id} processing failed:`, err);
-      prisma.document
+      await prisma.chunk.deleteMany({ where: { documentId: document.id } });
+      await prisma.document
         .update({
           where: { id: document.id },
           data: {
@@ -132,6 +133,7 @@ async function processDocument(
   // 3. Embed in batches
   const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || "32", 10);
   const contents = chunks.map((c) => c.content);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   for (let i = 0; i < contents.length; i += batchSize) {
     const batch = contents.slice(i, i + batchSize);
@@ -148,6 +150,9 @@ async function processDocument(
         VALUES ${Prisma.join(rows)}
       `
     );
+
+    // Pace batches to stay under the free-tier ~100 embeddings/minute quota.
+    if (i + batchSize < contents.length) await sleep(650);
   }
 
   // 4. Mark ready

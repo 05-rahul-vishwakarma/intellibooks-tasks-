@@ -48,10 +48,23 @@ async function embedBatch(texts: string[], taskType: TaskType): Promise<number[]
       });
 
       if (!res.ok) {
-        const retryAfter = Number(res.headers.get("retry-after"));
+        const text = await res.text();
+        let retryAfter = Number(res.headers.get("retry-after"));
+        if (!retryAfter && res.status === 429) {
+          try {
+            const body = JSON.parse(text);
+            const detail = body?.error?.details?.find(
+              (d: any) => d["@type"]?.includes("RetryInfo")
+            );
+            if (detail?.retryDelay) {
+              const ms = Number(detail.retryDelay.replace("s", "")) * 1000;
+              if (!isNaN(ms)) retryAfter = ms / 1000;
+            }
+          } catch {}
+        }
         throw new HttpError(
           res.status,
-          `Gemini embedding failed: ${res.status} ${await res.text()}`,
+          `Gemini embedding failed: ${res.status} ${text}`,
           retryAfter ? retryAfter * 1000 : undefined
         );
       }
