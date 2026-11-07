@@ -14,6 +14,8 @@ import {
 import { messagesQueryKey, useMessages } from "@/hooks/useMessages";
 import DocumentSidebar from "@/components/DocumentSidebar";
 import ChatPanel from "@/components/ChatPanel";
+import AuthPrompt from "@/components/AuthPrompt";
+import type { AuthAction } from "@/components/AuthPrompt";
 import { SparklesIcon } from "@/components/icons";
 
 interface DashboardClientProps {
@@ -36,6 +38,28 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
   const [chatError, setChatError] = useState<{ message: string; retryable: boolean } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<AuthAction | null>(null);
+
+  const requireAuth = useCallback((action: AuthAction) => {
+    setAuthPrompt(action);
+  }, []);
+
+  // Close the auth prompt automatically once the user is authenticated.
+  useEffect(() => {
+    if (isSignedIn) setAuthPrompt(null);
+  }, [isSignedIn]);
+
+  // Drop the previous user's cached documents and conversations on sign-out so
+  // a guest session never sees them.
+  const wasSignedIn = useRef<boolean>(!!isSignedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !isSignedIn) {
+      queryClient.removeQueries({ queryKey: documentsQueryKey });
+      queryClient.removeQueries({ queryKey: ["messages"] });
+      setSelectedId(null);
+    }
+    wasSignedIn.current = !!isSignedIn;
+  }, [isSignedIn, queryClient]);
 
   const selectedIdRef = useRef<string | null>(selectedId);
   useEffect(() => {
@@ -72,6 +96,11 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
 
   const sendMessage = useCallback(
     async (question: string) => {
+      if (!isSignedIn) {
+        requireAuth("chat");
+        return;
+      }
+
       const doc = selectedDoc;
       const trimmed = question.trim();
       if (!doc || doc.status !== "ready" || !trimmed || streaming) return;
@@ -115,7 +144,7 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
         setStreaming(false);
       }
     },
-    [selectedDoc, streaming, getToken, queryClient]
+    [isSignedIn, requireAuth, selectedDoc, streaming, getToken, queryClient]
   );
 
   const handleRetry = useCallback(() => {
@@ -135,6 +164,10 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
 
   const handleUpload = useCallback(
     (file: File) => {
+      if (!isSignedIn) {
+        requireAuth("upload");
+        return;
+      }
       setActionError(null);
       setNotice(null);
       uploadFile(file, {
@@ -165,7 +198,7 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
           setActionError(err instanceof Error ? err.message : "Upload failed"),
       });
     },
-    [uploadFile, queryClient, showNotice]
+    [isSignedIn, requireAuth, uploadFile, queryClient, showNotice]
   );
 
   const handleDelete = useCallback(
@@ -206,8 +239,6 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
     );
   }
 
-  if (!isSignedIn) return null;
-
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50">
       <DocumentSidebar
@@ -218,10 +249,12 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
         error={docErrorMessage}
         notice={notice}
         isOpen={sidebarOpen}
+        isSignedIn={!!isSignedIn}
         onClose={() => setSidebarOpen(false)}
         onSelect={handleSelect}
         onDelete={handleDelete}
         onUpload={handleUpload}
+        onRequireAuth={requireAuth}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -231,11 +264,17 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
           messagesLoading={messagesLoading}
           streaming={streaming}
           error={combinedChatError}
+          isSignedIn={!!isSignedIn}
           onSend={sendMessage}
           onRetry={handleRetry}
           onOpenSidebar={() => setSidebarOpen(true)}
+          onRequireAuth={requireAuth}
         />
       </div>
+
+      {authPrompt && !isSignedIn && (
+        <AuthPrompt action={authPrompt} onClose={() => setAuthPrompt(null)} />
+      )}
     </div>
   );
 }

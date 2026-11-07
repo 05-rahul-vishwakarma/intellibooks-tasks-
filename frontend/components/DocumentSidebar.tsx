@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import type { Document } from "@/lib/api";
+import type { AuthAction } from "@/components/AuthPrompt";
 import DocumentRow from "@/components/DocumentRow";
 import DocumentRowSkeleton from "@/components/DocumentRowSkeleton";
 import { CloseIcon, FileTextIcon, SparklesIcon, UploadIcon } from "@/components/icons";
@@ -15,10 +17,12 @@ interface DocumentSidebarProps {
   error: string | null;
   notice: string | null;
   isOpen: boolean;
+  isSignedIn: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onUpload: (file: File) => void;
+  onRequireAuth: (action: AuthAction) => void;
 }
 
 export default function DocumentSidebar({
@@ -29,10 +33,12 @@ export default function DocumentSidebar({
   error,
   notice,
   isOpen,
+  isSignedIn,
   onClose,
   onSelect,
   onDelete,
   onUpload,
+  onRequireAuth,
 }: DocumentSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,6 +46,14 @@ export default function DocumentSidebar({
     const file = event.target.files?.[0];
     if (file) onUpload(file);
     event.target.value = "";
+  };
+
+  const handleUploadClick = () => {
+    if (!isSignedIn) {
+      onRequireAuth("upload");
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
   return (
@@ -90,7 +104,7 @@ export default function DocumentSidebar({
           />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleUploadClick}
             disabled={uploading}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-70"
           >
@@ -149,7 +163,9 @@ export default function DocumentSidebar({
                 <FileTextIcon className="mx-auto h-6 w-6 text-slate-300" />
                 <p className="mt-2 text-xs font-medium text-slate-500">No documents yet</p>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  Upload a file to start chatting.
+                  {isSignedIn
+                    ? "Upload a file to start chatting."
+                    : "Sign in to upload a file and start chatting."}
                 </p>
               </div>
             ) : (
@@ -170,13 +186,36 @@ export default function DocumentSidebar({
 
         {/* Footer */}
         <div className="border-t border-slate-200 p-3">
-          <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
-            <UserButton />
-            <div className="min-w-0 leading-tight">
-              <p className="truncate text-xs font-medium text-slate-700">Signed in</p>
-              <p className="truncate text-[11px] text-slate-400">Manage your account</p>
+          {isSignedIn ? (
+            <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
+              <UserButton />
+              <div className="min-w-0 leading-tight">
+                <p className="truncate text-xs font-medium text-slate-700">Signed in</p>
+                <p className="truncate text-[11px] text-slate-400">Manage your account</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-700">Guest mode</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                Sign in to upload documents and chat.
+              </p>
+              <div className="mt-2.5 flex flex-col gap-1.5">
+                <Link
+                  href="/sign-in?redirect_url=%2Fdashboard"
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-center text-xs font-semibold text-white transition hover:bg-indigo-700"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/sign-up?redirect_url=%2Fdashboard"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Create account
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
     </>

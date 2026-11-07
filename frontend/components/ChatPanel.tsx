@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { ChatMessage, ChatSource, Document } from "@/lib/api";
+import type { AuthAction } from "@/components/AuthPrompt";
 import MessageBubble from "@/components/MessageBubble";
 import { ChatMessageSkeleton } from "@/components/ChatMessageSkeleton";
 import {
@@ -19,9 +21,11 @@ interface ChatPanelProps {
   messagesLoading: boolean;
   streaming: boolean;
   error: { message: string; retryable: boolean } | null;
+  isSignedIn: boolean;
   onSend: (question: string) => void;
   onRetry: () => void;
   onOpenSidebar: () => void;
+  onRequireAuth: (action: AuthAction) => void;
 }
 
 const statusStyles: Record<string, string> = {
@@ -36,9 +40,11 @@ export default function ChatPanel({
   messagesLoading,
   streaming,
   error,
+  isSignedIn,
   onSend,
   onRetry,
   onOpenSidebar,
+  onRequireAuth,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [activeSource, setActiveSource] = useState<ChatSource | null>(null);
@@ -81,6 +87,10 @@ export default function ChatPanel({
   }, [activeSource]);
 
   const submit = () => {
+    if (!isSignedIn) {
+      onRequireAuth("chat");
+      return;
+    }
     if (!canSend) return;
     onSend(input.trim());
     setInput("");
@@ -139,7 +149,11 @@ export default function ChatPanel({
       {/* Body */}
       <div className="flex min-h-0 flex-1 flex-col">
         {!document ? (
-          <WelcomePanel onOpenSidebar={onOpenSidebar} />
+          <WelcomePanel
+            isSignedIn={isSignedIn}
+            onOpenSidebar={onOpenSidebar}
+            onRequireAuth={onRequireAuth}
+          />
         ) : document.status === "processing" ? (
           <ProcessingPanel document={document} />
         ) : document.status === "failed" ? (
@@ -179,7 +193,7 @@ export default function ChatPanel({
       </div>
 
       {/* Composer */}
-      {isReady && (
+      {(isReady || !isSignedIn) && (
         <div className="border-t border-slate-200 bg-white px-4 py-3">
           <form
             onSubmit={(e) => {
@@ -195,21 +209,27 @@ export default function ChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask a question about this document…"
+                placeholder={
+                  isSignedIn
+                    ? "Ask a question about this document…"
+                    : "Sign in to ask questions about your documents…"
+                }
                 disabled={streaming || messagesLoading}
                 className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-[15px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="submit"
-                disabled={!canSend}
-                aria-label="Send message"
+                disabled={!isSignedIn ? input.trim().length === 0 : !canSend}
+                aria-label={isSignedIn ? "Send message" : "Sign in to send a message"}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <SendIcon className="h-4 w-4" />
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-slate-400">
-              PaperChat can make mistakes. Check the cited source passages.
+              {isSignedIn
+                ? "PaperChat can make mistakes. Check the cited source passages."
+                : "You're browsing as a guest. Sign in to upload documents and chat."}
             </p>
           </form>
         </div>
@@ -300,7 +320,15 @@ function ErrorBanner({
   );
 }
 
-function WelcomePanel({ onOpenSidebar }: { onOpenSidebar: () => void }) {
+function WelcomePanel({
+  isSignedIn,
+  onOpenSidebar,
+  onRequireAuth,
+}: {
+  isSignedIn: boolean;
+  onOpenSidebar: () => void;
+  onRequireAuth: (action: AuthAction) => void;
+}) {
   const features = [
     { title: "Upload", desc: "PDF, DOCX, TXT" },
     { title: "Chat", desc: "Ask anything" },
@@ -313,11 +341,12 @@ function WelcomePanel({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         <SparklesIcon className="h-8 w-8" />
       </div>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-        Ask your documents anything
+        {isSignedIn ? "Ask your documents anything" : "Chat with your documents"}
       </h1>
       <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
-        Pick a document from the sidebar to start chatting, or upload a new PDF, DOCX, or TXT file.
-        Every answer comes with the source passages it used.
+        {isSignedIn
+          ? "Pick a document from the sidebar to start chatting, or upload a new PDF, DOCX, or TXT file. Every answer comes with the source passages it used."
+          : "Upload a PDF, DOCX, or TXT file and ask questions with cited answers. Sign in or create an account to get started."}
       </p>
 
       <div className="mt-8 grid w-full max-w-md grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -332,13 +361,39 @@ function WelcomePanel({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={onOpenSidebar}
-        className="mt-6 text-xs font-medium text-indigo-600 hover:text-indigo-700 md:hidden"
-      >
-        Open documents
-      </button>
+      {isSignedIn ? (
+        <button
+          type="button"
+          onClick={onOpenSidebar}
+          className="mt-6 text-xs font-medium text-indigo-600 hover:text-indigo-700 md:hidden"
+        >
+          Open documents
+        </button>
+      ) : (
+        <div className="mt-7 flex w-full max-w-xs flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => onRequireAuth("upload")}
+            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+          >
+            Upload a document
+          </button>
+          <div className="flex gap-2">
+            <Link
+              href="/sign-in?redirect_url=%2Fdashboard"
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/sign-up?redirect_url=%2Fdashboard"
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Sign up
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,12 @@
-import { redirect } from "next/navigation";
+import DashboardClient from "@/components/DashboardClient";
 
-export default function Home() {
-  redirect("/dashboard");
+export default function Home({
+  searchParams,
+}: {
+  searchParams?: { doc?: string | string[] };
+}) {
+  const raw = searchParams?.doc;
+  const initialDocId = Array.isArray(raw) ? raw[0] ?? null : raw ?? null;
+
+  return <DashboardClient initialDocId={initialDocId} />;
 }
