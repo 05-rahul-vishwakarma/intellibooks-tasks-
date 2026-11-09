@@ -13,6 +13,7 @@ npm-debug.log*
 .DS_Store
 .vscode
 .idea
+.opencode
 *.pem
 __pycache__
 *.pyc
