@@ -16,6 +16,7 @@ import DocumentSidebar from "@/components/DocumentSidebar";
 import ChatPanel from "@/components/ChatPanel";
 import AuthPrompt from "@/components/AuthPrompt";
 import type { AuthAction } from "@/components/AuthPrompt";
+import { toast } from "sonner";
 import { SparklesIcon } from "@/components/icons";
 
 interface DashboardClientProps {
@@ -192,10 +193,15 @@ export default function DashboardClient({ initialDocId }: DashboardClientProps) 
           });
           setSelectedId(result.id);
           setSidebarOpen(false);
-          showNotice("Uploaded — processing started");
+          toast.success("Uploaded — processing started", {
+            description: uploadedFile.name,
+          });
         },
-        onError: (err) =>
-          setActionError(err instanceof Error ? err.message : "Upload failed"),
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Upload failed";
+          setActionError(msg);
+          toast.error(msg);
+        },
       });
     },
     [isSignedIn, requireAuth, uploadFile, queryClient, showNotice]

@@ -1,39 +1,18 @@
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: intellibooks
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./backend/docker/init-vector.sql:/docker-entrypoint-initdb.d/01-init-vector.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d intellibooks"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    # Load every key the backend reads (Clerk, Groq, Gemini, Cloudinary, RAG
+    # Load every key the backend reads (Clerk, Groq, Gemini, RAG
     # tuning) from the root .env. Copy it first: cp .env.example .env
     env_file:
       - .env
     environment:
-      # Override the .env DATABASE_URL so the container talks to the db service.
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/intellibooks
+      DATABASE_URL: ${DATABASE_URL}
       PORT: 8000
       FRONTEND_URL: http://localhost:3000
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       - ./backend/uploads:/app/uploads
 
@@ -61,5 +40,3 @@ services:
     depends_on:
       - backend
 
-volumes:
-  db_data:

@@ -1,13 +1,16 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
+import { toast } from "sonner";
 import type { Document } from "@/lib/api";
 import type { AuthAction } from "@/components/AuthPrompt";
 import DocumentRow from "@/components/DocumentRow";
 import DocumentRowSkeleton from "@/components/DocumentRowSkeleton";
 import { CloseIcon, FileTextIcon, SparklesIcon, UploadIcon } from "@/components/icons";
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 interface DocumentSidebarProps {
   documents: Document[];
@@ -41,10 +44,21 @@ export default function DocumentSidebar({
   onRequireAuth,
 }: DocumentSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) onUpload(file);
+    if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      const mb = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+      const message = `File is too large. Please upload a file under ${mb} MB.`;
+      setUploadError(message);
+      toast.error(message);
+      event.target.value = "";
+      return;
+    }
+    setUploadError(null);
+    onUpload(file);
     event.target.value = "";
   };
 
@@ -123,14 +137,19 @@ export default function DocumentSidebar({
           <p className="mt-1.5 text-center text-[11px] text-slate-400">PDF, DOCX or TXT</p>
         </div>
 
-        {(error || notice) && (
+        {(error || notice || uploadError) && (
           <div className="px-3 pb-3">
             {error && (
               <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                 {error}
               </div>
             )}
-            {notice && !error && (
+            {uploadError && !error && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {uploadError}
+              </div>
+            )}
+            {notice && !error && !uploadError && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
                 {notice}
               </div>

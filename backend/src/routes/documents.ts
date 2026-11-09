@@ -6,12 +6,14 @@ import { prisma, pgvector } from "../lib/db";
 import { parseFile } from "../lib/parser";
 import { chunkDocument } from "../lib/chunker";
 import { embedTexts } from "../lib/embeddings";
-import { deleteStoredFile, uploadBuffer } from "../lib/cloudinary";
+import { deleteStoredFile, saveBuffer } from "../lib/storage";
 import { asyncHandler, HttpError } from "../lib/http";
 
 const router = express.Router();
 
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || "20", 10);
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const FILE_TOO_LARGE_MESSAGE = `File is too large. Please upload a file under ${MAX_FILE_SIZE_MB} MB.`;
 
 const ALLOWED_MIME = new Set([
   "application/pdf",
@@ -20,7 +22,7 @@ const ALLOWED_MIME = new Set([
 ]);
 
 const upload = multer({
-  limits: { fileSize: MAX_FILE_SIZE_MB * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME.has(file.mimetype)) {
       cb(null, true);
@@ -33,6 +35,27 @@ const upload = multer({
     cb(err);
   },
 });
+
+// Wrap multer so an oversized upload returns a clear, friendly message
+// instead of a raw MulterError.
+const handleUpload: express.RequestHandler = (req, res, next) => {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        res.status(413).json({ error: FILE_TOO_LARGE_MESSAGE });
+        return;
+      }
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    if (err) {
+      const status = (err as { status?: number }).status ?? 400;
+      res.status(status).json({ error: (err as Error).message });
+      return;
+    }
+    next();
+  });
+};
 
 const idSchema = z.string().uuid("id must be a valid UUID");
 
@@ -53,13 +76,17 @@ function serializeDocument(doc: Document) {
 // POST /api/documents — upload, insert processing, return 202
 router.post(
   "/",
-  upload.single("file"),
+  handleUpload,
   asyncHandler(async (req, res) => {
     const userId = req.userId!;
     const file = req.file;
 
     if (!file) {
       throw new HttpError(400, "No file uploaded. Send the file in the `file` field.");
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      throw new HttpError(413, FILE_TOO_LARGE_MESSAGE);
     }
 
     const document = await prisma.document.create({
@@ -71,17 +98,18 @@ router.post(
       },
     });
 
-    // Archival copy is optional: a storage outage must not fail the upload.
+    // Persist the original file to local disk. Optional: a storage failure
+    // must not fail the upload.
     try {
-      const secureUrl = await uploadBuffer(file.buffer, file.originalname, file.mimetype);
-      if (secureUrl) {
+      const storedName = await saveBuffer(file.buffer, file.originalname);
+      if (storedName) {
         await prisma.document.update({
           where: { id: document.id },
-          data: { cloudinaryUrl: secureUrl },
+          data: { cloudinaryUrl: storedName },
         });
       }
     } catch (err) {
-      console.error(`Document ${document.id} archival upload failed:`, err);
+      console.error(`Document ${document.id} local store failed:`, err);
     }
 
     // Background processing — do not await before responding.
