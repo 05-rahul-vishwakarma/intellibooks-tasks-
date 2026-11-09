@@ -188,6 +188,11 @@ Put **all** values in the root `.env` (Docker Compose loads it). Never commit `.
 2. `GEMINI_API_KEY=AIza...`
 3. Keep `EMBEDDING_MODEL=gemini-embedding-001` and `EMBEDDING_DIMS=768` (must match the DB).
 
+### OpenRouter — optional chat fallback
+1. Create a key at [openrouter.ai/keys](https://openrouter.ai/keys).
+2. `OPENROUTER_API_KEY=sk-or-...`
+3. This is optional: the backend defaults to Groq for chat. To route chat through OpenRouter instead, set `CHAT_PROVIDER=openrouter` and `OPENROUTER_MODEL` in `.env`, and point the Groq SDK base URL at `https://openrouter.ai/api/v1` (see `backend/src/lib/groq.ts`).
+
 ### Cloudinary — original-file archival (optional)
 If `CLOUDINARY_*` is omitted, uploads and Q&A still work; originals just aren't archived.
 
@@ -202,6 +207,7 @@ See [`.env.example`](./.env.example) for the full annotated list. Summary:
 | `CLERK_SECRET_KEY` | backend | Verify Clerk session tokens |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | backend + frontend | Clerk app identifier |
 | `GROQ_API_KEY`, `GROQ_MODEL` | backend | Chat model |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | backend | Optional OpenRouter chat fallback |
 | `GEMINI_API_KEY`, `EMBEDDING_MODEL`, `EMBEDDING_DIMS` | backend | Embeddings (dims must match DB) |
 | `CLOUDINARY_*` | backend (optional) | Archive original uploads |
 | `DATABASE_URL` | backend | Postgres + pgvector |
@@ -339,6 +345,15 @@ messages / delete for it, and that A's document survives B's delete attempt.
 - **Assumption**: the review environment uses the provided `.env.example` values; changing the
   embedding model or dimensions requires updating `EMBEDDING_DIMS` **and** the DB `vector(N)`.
 
+### What I would improve with more time
+
+- **Multi-document Q&A**: today each conversation is tied to a single document. With more time I'd let users select multiple documents for one chat.
+- **Follow-up context**: prior turns are stored but not re-sent to the LLM, so "and the second point?" won't resolve. I'd pass a truncated recent-history window into the prompt.
+- **Proper background worker**: parsing/embedding runs in-process; a mid-processing crash leaves a doc `failed`. I'd move it to a queue (BullMQ/SQS + worker) with retries.
+- **ANN vector index**: exact cosine scan is fine at this scale, but for a large corpus I'd add an HNSW index on `embedding`.
+- **Hybrid search**: combine vector search with full-text (Postgres `tsvector`) to catch keyword matches that semantic search misses.
+- **Demo video**: record and link the 5-minute walkthrough listed in the Demo section.
+
 ---
 
 ## How AI tools were used
@@ -376,3 +391,4 @@ Repository: **https://github.com/05-rahul-vishwakarma/intellibooks**
 ## License
 
 MIT
+# intellibooks-tasks-
